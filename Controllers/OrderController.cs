@@ -1,569 +1,212 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Security.Claims;
-using System.Threading.Tasks;
-using food_order_system1.Data;
 using food_order_system1.DTOs;
+using food_order_system1.Flters;
 using food_order_system1.Modles;
 using food_order_system1.Service;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Internal;
+
 
 namespace food_order_system1.Controllers
 {
+    /// <summary>
+    /// Handles order operations such as:
+    /// creating orders, viewing orders, updating status,
+    /// and retrieving order statistics.
+    /// </summary>
     [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+    [ProducesResponseType(typeof(ServiceResult<string>), 401)]
     [ApiController]
-    [Route("MySYS/[controller]")]
+    [Route("api/[controller]")]
     public class OrderController : ControllerBase
     {
-        private readonly AppUser _dbContext;
-        private readonly UserManager<ApplicationUser> _userManager;
-        private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly IAuthorizationService _authorizationService;
         private readonly IOrderSerivce _orderservice;
+        private readonly ILogger<OrderController> _logger;
 
-        public OrderController(
-            AppUser dbContext,
-            UserManager<ApplicationUser> userManager,
-            SignInManager<ApplicationUser> signInManager,
-            IAuthorizationService authorizationService,
-            IOrderSerivce orderservice)
+        public OrderController(IOrderSerivce orderservice,
+           IAuthorizationService authorizationService,
+           ILogger<OrderController> logger
+           )
         {
-            _dbContext = dbContext;
-            _userManager = userManager;
-            _signInManager = signInManager;
             _authorizationService = authorizationService;
             _orderservice = orderservice;
+            _logger = logger;
         }
 
-
-
-
+        /// <summary>
+        /// Create a new order from a cart.
+        /// </summary>
+        /// <param name="cart_id">Cart ID</param>
+        /// <param name="dto">Order data</param>
+        /// <returns>Created order ID</returns>
         [Authorize(Roles = "Customer")]
-        [HttpPost("create_order/{cart_id}")]
-        public async Task<IActionResult> create_oder(int cart_id, [FromBody] CreateOrderDTO dto)
+        [HttpPost("{cart_id}")]
+        [ProducesResponseType(typeof(ServiceResult<int>), 201)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 400)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 403)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 404)]
+        public async Task<IActionResult> CreateOrder(int cart_id, [FromBody] CreateOrderDTO dto)
         {
+            if(cart_id <= 0)
+            {
+                 return MapServiceResult(new ServiceResult<int>
+                {
+                    Success = false,
+                    Message = "please enter a valid cart id ",
+                    StatusCode = 400
+                }); 
+            }
+            var (cart, Auth) = await _orderservice.GetCartEntityAndAuth(cart_id);
 
-            var result = await _orderservice.CreateOderService(cart_id, dto, User);
+            if (cart == null || Auth == null)
+            {
+                _logger.LogInformation("Cart not found cartid {cart_id}", cart_id);
+                return MapServiceResult(new ServiceResult<int>
+                {
+                    Success = false,
+                    Message = "Cart not found",
+                    StatusCode = 404
+                });
+            }
+            var authResult = await OwnerAuthorizeOrFalid(Auth, "you are not authorized to create order");
 
+            if (authResult != null)
+                return authResult;
+
+            var result = await _orderservice.CreateOderService(cart, dto);
             return MapServiceResult(result);
-
-            // var cart = await _dbContext.carts
-            //     .Include(c => c.User)
-            //    .FirstOrDefaultAsync(i => i.CartId == cart_id);
-
-            // if (cart == null) return NotFound(new
-            // {
-            //     Success = false,
-            //     Message = "cart not found for this user"
-            // });
-
-            // if (cart.User == null)
-            // {
-            //     return NotFound(new
-            //     {
-            //         Success = false,
-            //         Message = "cart user is null"
-            //     });
-            // }
-
-            // var authResult = await _authorizationService.AuthorizeAsync(
-            //     User,
-            //     cart.User,
-            //    "UserOwnerShipPolicy");
-
-            // if (authResult.Succeeded == false)
-            // {
-            //     return Unauthorized(new
-            //     {
-            //         Success = false,
-            //         Message = "You are not authorized to create an order for this cart."
-            //     });
-            // }
-
-
-            // var restaurant = await _dbContext.restaurants.AnyAsync(r => r.RestaurantId == cart.RestaurantId && !r.IsDeleted && r.IsOpen && r.RestaurantStatus == RestaurantStatuss.Accepted);
-            // var menu = await _dbContext.menu_category.AnyAsync(m => m.RestaurantId == cart.RestaurantId && !m.IsDeleted);
-            // var cart_item = await _dbContext.cart_items.Where(i => i.CartId == cart.CartId).ToListAsync();
-
-            // if (!restaurant) return BadRequest(new
-            // {
-            //     Success = false,
-            //     Message = "can not create order for this restaurant"
-            // });
-
-            // if (!menu) return BadRequest(new
-            // {
-            //     Success = false,
-            //     Message = "can not create order for this menu"
-            // });
-
-            // if (cart_item.Count <= 0) return NotFound(new
-            // {
-            //     Success = false,
-            //     Message = "no item in this cart"
-            // });
-
-            // var new_order = new Orders
-            // {
-            //     CartId = cart.CartId,
-            //     UserId = cart.UserId,
-            //     Status = OrderStatuss.Pending,
-            //     CreateAt = DateTime.UtcNow,
-            //     RestaurantId = cart.RestaurantId,
-            //     Address = dto.addrees
-            // };
-
-            // decimal total_prcie = 0;
-
-
-            // foreach (var item in cart_item)
-            // {
-            //     var item_price = await _dbContext.items.FirstOrDefaultAsync(i => i.ItemId == item.ItemId && i.IsActive && !i.IsDeleted);
-            //     if (item_price == null) return NotFound(new
-            //     {
-            //         Success = false,
-            //         Message = "can not found item for this order"
-            //     });
-            //     var new_order_item = new OrderItem
-            //     {
-            //         Quantity = item.Quantity,
-            //         ItemId = item.ItemId,
-            //         PriceAtPurchase = item_price.ItemPrice // snapshot  
-            //     };
-            //     total_prcie += (decimal)item_price.ItemPrice * item.Quantity;
-            //     new_order.OrderItems.Add(new_order_item);// this add FK order id to order items 
-
-            // }
-            // new_order.TotalPrice = total_prcie;
-            // _dbContext.orders.Add(new_order);
-
-
-            // await _dbContext.SaveChangesAsync();
-
-            // var new_order_status = new OrderStatus
-            // {
-            //     StatusName = OrderStatuss.Pending,
-            //     OrderId = new_order.OrderId,
-            //     OrderTime = DateTime.UtcNow
-            // };
-
-            // _dbContext.order_statuses.Add(new_order_status);
-
-            // await _dbContext.SaveChangesAsync();
-            // total_prcie = 0;
-            // return Ok(new
-            // {
-            //     Success = true,
-            //     Message = "new order is created",
-            //     Data = new_order
-            // });
         }
 
-
-
-
-        [Authorize(Roles = "RestaurantManager,Admin,Customer")]
-        [HttpGet("view_all/orders")]
-        public async Task<IActionResult> view_all_orders()
+        /// <summary>
+        /// Retrieve all order and items with filter by order status, order id,username, restaurant id and restaurant name 
+        /// customer and restaurant manager only can see its own orders and admin can see specific or all restaurant orders
+        /// sort the result with acending or decending order by order id ,restaurant name , user name and restaurant id 
+        /// </summary>
+        /// <param name="pagination">Pagination parameters</param>
+        /// <param name="filter">Filtering and sorting parameters</param>
+        /// <returns>List of orders with items</returns>
+        [Authorize(Roles = "Customer,RestaurantManager,Admin")]
+        [HttpGet]
+        [ProducesResponseType(typeof(ServiceResult<List<ViewOrderOrderItemDTO>>), 200)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 400)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 404)]
+        public async Task<IActionResult> GetOrders([FromQuery] PaginationParams pagination, [FromQuery] OrderFilter filter)
         {
 
-            string user_id = await GetUserIdFromToken();
+            var user_id = await GetUserIdFromToken();
+            UserRolee role;
 
-            var result = await _orderservice.ViewAllOrdersService(user_id, User);
+            if (User.IsInRole("Customer"))
+                role = UserRolee.Customer;
+            else if (User.IsInRole("RestaurantManager"))
+                role = UserRolee.RestaurantManager;
+            else
+                role = UserRolee.Admin;
 
+            var result = await _orderservice.ViewAllOrdersService(pagination, filter, user_id, role);
             return MapServiceResult(result);
-
-            // var query = _dbContext.orders.AsQueryable();
-            //
-
-            // if (User.IsInRole("Customer"))
-            // {
-            //     query = query.Where(o => o.UserId == user_id);
-
-            // }
-            // else if (User.IsInRole("RestaurantManager"))
-            // {
-
-            //     var restaurant = await _dbContext.restaurants.FirstOrDefaultAsync(r => r.UserId == user_id);
-            //     if (restaurant == null) return NotFound(new
-            //     {
-            //         Success = false,
-            //         Message = "restaurant not found"
-            //     });
-
-            //     query = query.Where(o => o.RestaurantId == restaurant.RestaurantId);
-
-            // }
-            // var orders = await query
-            //     .Select(o => new
-            //     {
-            //         user = o.User.fullName,
-            //         cart = o.CartId,
-            //         restaurant = o.Cart.Restaurant.Restaurant_Name,
-            //         statis = o.Status,
-            //         address = o.Address,
-            //         time = o.CreateAt,
-            //         items = o.OrderItems.Select(oi => new
-            //         {
-            //             item_name = oi.Item.ItemName,
-            //             quantity = oi.Quantity,
-            //             price = oi.PriceAtPurchase,
-            //         }).ToList(),
-            //         totalPrice = o.TotalPrice
-
-            //     })
-            //     .ToListAsync();
-
-            // return Ok(new
-            // {
-            //     Success = true,
-            //     Data = orders
-            // });
-
         }
 
-
-
-        [Authorize(Roles = "RestaurantManager,Admin")]
-        [HttpGet("view/restaurant/{res_id}/orders")]
-        public async Task<IActionResult> view_orders(int res_id)
-        {
-            var result = await _orderservice.ViewOrdersService(res_id, User);
-
-            return MapServiceResult(result);
-
-            // var restaurant = await _dbContext.restaurants.FirstOrDefaultAsync(r => r.RestaurantId == res_id);
-            // if (restaurant == null) return NotFound(new
-            // {
-            //     Success = false,
-            //     Message = "restaurant not found"
-            // });
-
-            // var authResult = await _authorizationService.AuthorizeAsync(
-            //   User,
-            //   restaurant,
-            //  "RestauantOwnerShipAndAdminPolicy");
-
-            // if (!authResult.Succeeded)
-            //     return Unauthorized(new
-            //     {
-            //         Success = false,
-            //         Message = "You are not authorized to view orders for this restaurant"
-            //     }
-            //         );
-
-            // var orders = await _dbContext.orders
-            //     .Where(o => o.RestaurantId == res_id)
-            //     .Select(o => new
-            //     {
-            //         user = o.User.fullName,
-            //         cart = o.CartId,
-            //         restaurant = o.Cart.Restaurant.Restaurant_Name,
-            //         statis = o.Status,
-            //         address = o.Address,
-            //         time = o.CreateAt,
-            //         items = o.OrderItems.Select(oi => new
-            //         {
-            //             item_name = oi.Item.ItemName,
-            //             quantity = oi.Quantity,
-            //             price = oi.PriceAtPurchase,
-            //         }).ToList(),
-            //         totalPrice = o.TotalPrice
-
-            //     }).ToListAsync();
-
-            // return Ok(new
-            // {
-            //     Success = true,
-            //     Data = orders
-            // });
-        }
-
-
-
-
-
-        [Authorize(Roles = "RestaurantManager,Admin")]
-        [HttpGet("view/pending/orders/fro_restaurant/{res_id}")]
-        public async Task<IActionResult> view_pending_orders(int res_id)
-        {
-
-            var result = await _orderservice.ViewOrdersService(res_id, User);
-
-            return MapServiceResult(result);
-            // var restaurant = await _dbContext.restaurants.FirstOrDefaultAsync(r => r.RestaurantId == res_id);
-            // if (restaurant == null) return NotFound(new
-            // {
-            //     Success = false,
-            //     Message = "restaurant not found"
-            // });
-
-            // var authResult = await _authorizationService.AuthorizeAsync(
-            //   User,
-            //   restaurant,
-            //  "RestauantOwnerShipAndAdminPolicy");
-
-            // if (!authResult.Succeeded)
-            //     return Unauthorized(new
-            //     {
-            //         Success = false,
-            //         Message = "You are not authorized to view orders for this restaurant"
-            //     }
-
-
-            //        );
-
-            // var orders = await _dbContext.orders
-            //     .Where(o => o.RestaurantId == res_id && o.Status == OrderStatuss.Pending)
-            //     .Select(o => new
-            //     {
-            //         user = o.User.fullName,
-            //         cart = o.CartId,
-            //         restaurant = o.Cart.Restaurant.Restaurant_Name,
-            //         statis = o.Status,
-            //         address = o.Address,
-            //         time = o.CreateAt,
-            //         items = o.OrderItems.Select(oi => new
-            //         {
-            //             item_name = oi.Item.ItemName,
-            //             quantity = oi.Quantity,
-            //             price = oi.PriceAtPurchase,
-            //         }).ToList(),
-            //         totalPrice = o.TotalPrice
-
-            //     })
-            //     .ToListAsync();
-
-            // return Ok(new
-            // {
-            //     Success = true,
-            //     Data = orders
-            // });
-        }
-
-
-
+        /// <summary>
+        /// Change order status (e.g., Pending → Completed).
+        /// </summary>
         [Authorize(Roles = "RestaurantManager")]
-        [HttpPatch("change/order/status/{order_id}")]
-        public async Task<IActionResult> change_order_status(int order_id)
+        [HttpPatch("{order_id}/status")]
+        [ProducesResponseType(typeof(ServiceResult<OrderStatuss>), 200)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 403)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 404)]
+        public async Task<IActionResult> UpdateOrderStatus(int order_id)
         {
+            var (Order, Auth) = await _orderservice.GetOrderEntityAndAuth(order_id);
 
-            var result = await _orderservice.ChangeOrderStatusService(order_id, User);
+            if (Order == null || Auth == null)
+                return MapServiceResult(new ServiceResult<OrderStatuss>
+                {
+                    Success = false,
+                    Message = "Order not found",
+                    StatusCode = 404
+                });
 
+
+            var authResult = await RestaurantAuthorizeOrFalid(Auth, $"you are not allowed to cahnge this order status {order_id}");
+
+            if (authResult != null)
+                return authResult;
+
+            var result = await _orderservice.ChangeOrderStatusService(Order);
+            return MapServiceResult(result);
+        }
+
+        /// <summary>
+        /// Retrieve order statistic information such as order number and total revent between start and end date 
+        /// customer and restaurant manager only can see its own  orders and admin can se all restaurant orders
+        /// </summary>
+        /// <returns>return ViewOrderStatisticDTO object</returns>
+        [Authorize(Roles = "Customer,RestaurantManager,Admin")]
+        [HttpGet("statistic")]
+        [ProducesResponseType(typeof(ServiceResult<List<ViewOrderOrderItemDTO>>), 200)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 400)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 404)]
+        public async Task<IActionResult> viewOrderStatistics([FromQuery] int number_days)
+        {
+            if (number_days <= 0)
+            {
+                return MapServiceResult(new ServiceResult<bool>
+                {
+                    Success = false,
+                    Message = "number_days must be greater than 0",
+                    StatusCode = 400
+                });
+            }
+            var user_id = await GetUserIdFromToken();
+            UserRolee role = await GetUserRole();
+
+            var result = await _orderservice.GetOrderStatisticService(number_days, user_id, role);
             return MapServiceResult(result);
 
-            // var order = await _dbContext.orders
-            // .Include(o => o.Cart)
-            // .FirstOrDefaultAsync(o => o.OrderId == order_id);
-            // if (order == null) return NotFound(new
-            // {
-            //     Success = false,
-            //     Message = "order not found"
-            // });
-
-            // var restaurant = await _dbContext.restaurants.FirstOrDefaultAsync(r => r.RestaurantId == order.Cart.RestaurantId && !r.IsDeleted);
-            // if (restaurant == null) return NotFound(new
-            // {
-            //     Success = false,
-            //     Message = "Restaurant not found"
-            // });
-
-            // var authResult = await _authorizationService.AuthorizeAsync(
-            //   User,
-            //   restaurant,
-            //   "RestauantOwnerShipAndAdminPolicy");
-
-            // if (!authResult.Succeeded)
-            //     return Unauthorized(new
-            //     {
-            //         Success = false,
-            //         Message = "You are not authorized to view orders for this restaurant"
-            //     }
-
-            //         );
-
-            // if (order.Status == OrderStatuss.Delivered)
-            //     return BadRequest(new
-            //     {
-            //         Success = false,
-            //         Message = "order already completed"
-            //     });
-
-            // switch (order.Status)
-            // {
-            //     case OrderStatuss.Pending:
-            //         order.Status = OrderStatuss.Accepted;
-            //         break;
-
-            //     case OrderStatuss.Accepted:
-            //         order.Status = OrderStatuss.Delivered;
-            //         break;
-
-            //     default:
-            //         return BadRequest(new
-            //         {
-            //             Success = false,
-            //             Message = "invalid status transition"
-            //         });
-            // }
-
-            // _dbContext.order_statuses.Add(new OrderStatus
-            // {
-            //     StatusName = order.Status,
-            //     OrderId = order.OrderId,
-            //     OrderTime = DateTime.UtcNow
-            // });
-
-            // await _dbContext.SaveChangesAsync();
-            // return Ok(new
-            // {
-            //     Success = true,
-            //     message = $"Order status updated successfully. Order is now {order.Status.ToString()}"
-            // });
 
         }
 
-
-        [HttpGet("view/order/statistics/{numberDays}")]
-        public async Task<IActionResult> GetOrderStatistic(int numberDays)
-        {
-
-
-            var result = await _orderservice.GetOrderStatisticService(numberDays);
-
-            return MapServiceResult(result);
-            // var end_date = DateTime.UtcNow.Date;
-            // var start_date = DateTime.UtcNow.AddDays(-numberDays).Date;
-
-            // //    var result = new List<object>();
-
-            // var orders = await _dbContext.orders
-            //         .Where(o => o.CreateAt.Date >= start_date && o.CreateAt.Date <= end_date)
-            //         .Select(o => new
-            //         {
-            //             username = o.User.fullName,
-            //             restaurantname = o.Restaurant.Restaurant_Name,
-            //             price = o.TotalPrice,
-            //             time = o.CreateAt.Date
-            //         })
-            //         .ToListAsync();
-
-            // return Ok(new
-            // {
-            //     Success = true,
-            //     orders = orders,
-            //     from = start_date,
-            //     to = end_date,
-            //     count = orders.Count,
-            //     message = $"Number of orders between the dates is {orders.Count}"
-            // });
-        }
-
-        [Authorize(Roles = "Admin , RestaurantManager")]
-        [HttpGet("view/total/orders")]
-        public async Task<IActionResult> View_totalNumber_orders()
+        /// <summary>
+        /// show most selling items form high to low
+        ///customer  restaurant manager can see its own items that most ordered for high to low
+        /// admin can see all item
+        /// </summary>
+        [Authorize(Roles = "Customer,RestaurantManager,Admin")]
+        [HttpGet("most-selling-items")]
+        [ProducesResponseType(typeof(ServiceResult<OrderStatuss>), 200)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 404)]
+        public async Task<IActionResult> GetMostSellingItem()
         {
             var user_id = await GetUserIdFromToken();
+            UserRolee role = await GetUserRole();
 
-            var result = await _orderservice.ViewAllOrderNumbersService(user_id, User);
+            var result = await _orderservice.GetMostSelinItemService(user_id, role);
             return MapServiceResult(result);
-
-            // var query = _dbContext.orders.AsQueryable();
-
-            // if (User.IsInRole("RestaurantManager"))
-            // {
-            //     var user_id = await GetUserIdFromToken();
-
-            //     var restaurant = await _dbContext.restaurants.FirstOrDefaultAsync(r => r.UserId == user_id);
-            //     if (restaurant == null) return NotFound(new
-            //     {
-            //         Success = false,
-            //         Message = "Restaurant not found"
-            //     });
-
-            //     //   Console.WriteLine(restaurant.User.UserName);
-            //     var authResult = await _authorizationService.AuthorizeAsync(
-            //       User,
-            //       restaurant,
-            //      "RestauantOwnerShipAndAdminPolicy");
-
-            //     if (!authResult.Succeeded)
-            //         return Unauthorized(new
-            //         {
-            //             Success = false,
-            //             Message = "You are not allowe to view total revent for this restaurant"
-            //         });
-
-            //     query = query.Where(o => o.RestaurantId == restaurant.RestaurantId);
-
-            // }
-
-            // var num_orders = query.Count();
-
-            // if (num_orders == 0) return NotFound(new
-            // {
-            //     Success = false,
-            //     Message = "order not found"
-            // });
-
-            // return Ok(new
-            // {
-            //     Success = true,
-            //     message = $" number of total orders = {num_orders}"
-            // }
-            //     );
         }
 
-        [Authorize(Roles = "Admin,RestaurantManager")]
-        [HttpGet("total/orders/ped_day/{num_days}")]
-        public async Task<IActionResult> total_orders_per_day(int num_days)
+          /// <summary>
+        /// show order numbers per day  
+        ///  restaurant manager can see its own restaurant orders per day
+        /// admin can see all restaurant orders
+        /// </summary>
+        [Authorize(Roles = "RestaurantManager,Admin")]
+        [HttpGet("daily-count")]
+        [ProducesResponseType(typeof(ServiceResult<OrderStatuss>), 200)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 404)]
+        public async Task<IActionResult> GetOrderNumberPerDay([FromQuery]int number_days , [FromQuery] int? restaurant_id)
         {
-            var user_id = await GetUserIdFromToken();
+               var user_id = await GetUserIdFromToken();
+            UserRolee role = await GetUserRole();
 
-            var result = await _orderservice.ViewOrderNumberPerDayService(num_days, user_id, User);
+
+             var result = await _orderservice.ViewOrderNumberPerDayService(number_days, restaurant_id,user_id, role);
             return MapServiceResult(result);
-
-
-
         }
 
-        [Authorize(Roles = "Admin,RestaurantManager")]
-        [HttpGet("total/revent/{num_days}")]
-        public async Task<IActionResult> total_revent(int num_days)
-        {
-            var user_id = await GetUserIdFromToken();
-            var result = await _orderservice.ViewTotalRevientService(num_days, user_id, User);
-            return MapServiceResult(result);
-
-        }
-
-        [Authorize(Roles = "Admin,RestaurantManager")]
-        [HttpGet("get_most_selling_item")]
-        public async Task<IActionResult> get_most_selig_item()
-        {
-            string user_id = await GetUserIdFromToken();
-            var result = await _orderservice.GetMostSelinItemService(user_id, User);
-            return MapServiceResult(result);
-
-        }
-
-        [Authorize(Roles = "Admin,RestaurantManager")]
-        [HttpGet("view/orders/per/rstaurant")]
-        public async Task<IActionResult> order_per_restaurant()
-        {
-            var user_id = await GetUserIdFromToken();
-
-            var result = await _orderservice.ViewOrderPerRestaurant(user_id, User);
-            return MapServiceResult(result);
-
-
-        }
+    
 
         private IActionResult MapServiceResult<T>(ServiceResult<T> result)
         {
@@ -571,10 +214,55 @@ namespace food_order_system1.Controllers
             {
                 404 => NotFound(result),
                 400 => BadRequest(result),
-                403 => Unauthorized(result),
+                403 => StatusCode(403, result),
+                420 => BadRequest(result),
+                201 => Created("", result),
                 _ => Ok(result)
             };
 
+        }
+        private async Task<IActionResult?> OwnerAuthorizeOrFalid(CartAuthorizationDTO resource, string message)
+        {
+
+            var authResult = await _authorizationService.AuthorizeAsync(
+            User,
+            resource,
+            "CartOwnerShipPolicy");
+
+            if (!authResult.Succeeded)
+            {
+                _logger.LogWarning("User {userId} not authorized for cart {cartId}",
+                           await GetUserIdFromToken(), resource.cartId);
+                return MapServiceResult(new ServiceResult<bool>
+                {
+                    Success = false,
+                    Message = message,
+                    StatusCode = 403
+                });
+            }
+            return null;
+        }
+
+        private async Task<IActionResult?> RestaurantAuthorizeOrFalid(RestaurantAuthorizationDTO resource, string message)
+        {
+
+            var authResult = await _authorizationService.AuthorizeAsync(
+            User,
+            resource,
+            "RestaurantOwnerShipAndAdminPolicy");
+
+            if (!authResult.Succeeded)
+            {
+                _logger.LogWarning("User {userId} not authorized for restaurant {Restaurant_id}",
+                           await GetUserIdFromToken(), resource.RestaurantId);
+                return MapServiceResult(new ServiceResult<bool>
+                {
+                    Success = false,
+                    Message = message,
+                    StatusCode = 403
+                });
+            }
+            return null;
         }
 
 
@@ -590,6 +278,32 @@ namespace food_order_system1.Controllers
 
 
 
+        public enum UserRolee
+        {
+            Customer,
+            RestaurantManager,
+            Admin
+        }
 
+           private async Task<UserRolee> GetUserRole()
+        { 
+             UserRolee role;
+
+         if (User.IsInRole(UserRolee.Customer.ToString()))
+            {
+                role = UserRolee.Customer;
+            }
+            else if (User.IsInRole(UserRolee.RestaurantManager.ToString()))
+            {
+                role = UserRolee.RestaurantManager;
+            }
+         else
+           {
+           role = UserRolee.Admin;
+           }
+
+        return role;
+            
+        }
     }
 }

@@ -35,7 +35,7 @@ namespace food_order_system1.Modles
         [Required]
         public decimal TotalPrice {get;set; }
 
-        public List<OrderItem> OrderItems { get; set; }=new();
+        public List<OrderItem> OrderItems { get; set; }=new List<OrderItem>();
     }
 
     
@@ -43,6 +43,7 @@ namespace food_order_system1.Modles
         {
             Pending ,
             Accepted ,
-            Delivered 
+            Delivered ,
+            Cancled
         }
 }

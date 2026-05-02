@@ -39,10 +39,14 @@ namespace food_order_system1.Data
     {
         base.OnModelCreating(modelBuilder);
 
-        // ✅ Create unique constraint on UserId + RestaurantId
-        modelBuilder.Entity<Cart>()
-            .HasIndex(c => new { c.UserId, c.RestaurantId })
-            .IsUnique();
+       
+          modelBuilder.Entity<ApplicationUser>()
+        .HasIndex(u => u.NormalizedEmail)
+        .IsUnique();
+
+        modelBuilder.Entity<ApplicationUser>()
+        .HasIndex(u => u.NormalizedUserName)
+        .IsUnique();
     }
 
 

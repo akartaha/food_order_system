@@ -1,107 +1,230 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
-using System.Threading.Tasks;
+using System.Security.Claims;
 using food_order_system1.Data;
 using food_order_system1.DTOs;
+using food_order_system1.Flters;
 using food_order_system1.Modles;
 using food_order_system1.Service;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using static food_order_system1.Controllers.OrderController;
 
 namespace food_order_system1.Controllers
-{
+{/// <summary>
+ /// Handles user-related operations such as:
+ /// profile updates, email changes, and admin user management.
+ /// </summary>
     [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+    [ProducesResponseType(typeof(ServiceResult<string>), 401)]
     [ApiController]
-    [Route("MySYS/[controller]")]
+    [Route("api/[controller]")]
     public class UserController : ControllerBase
     {
-        private readonly AppUser _dbContext;
-        private readonly UserManager<ApplicationUser> _userManager;
-        private readonly SignInManager<ApplicationUser> _signInManager;
+
         private readonly IAuthorizationService _authorizationService;
         private readonly IUserService _userService;
+        private readonly ILogger<UserController> _logger;
 
-        public UserController(
-            AppUser dbContext,
-            UserManager<ApplicationUser> userManager,
-            SignInManager<ApplicationUser> signInManager,
-            IAuthorizationService authorizationService,
-            IUserService userService)
+        public UserController(IUserService userService, ILogger<UserController> logger,IAuthorizationService authorizationService )
         {
-            _dbContext = dbContext;
-            _userManager = userManager;
-            _signInManager = signInManager;
+
             _authorizationService = authorizationService;
             _userService = userService;
+            _logger = logger;
         }
 
-
-
-
-        // update profile
+        /// <summary>
+        /// Update user profile information.
+        /// User can only update their own profile.
+        /// </summary>
         [Authorize(Roles = "Customer,Admin,RestaurantManager")]
-        [HttpPatch("update_profile/{userId}")]
-        public async Task<IActionResult> UpdateProfile([FromRoute] string userId, [FromBody] UpdateProfileDTO request)
+        [HttpPatch("{userId}")]
+        [ProducesResponseType(typeof(ServiceResult<bool>), 200)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 403)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 404)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 400)]
+        public async Task<IActionResult> UpdateProfile(string userId, [FromBody] UpdateProfileDTO request)
         {
+            _logger.LogInformation("UpdateProfile requested for userId: {UserId}", userId);
+            if (string.IsNullOrEmpty(userId))
+            {
+                _logger.LogWarning("update user requested with out userId {userId}", userId);
+                return MapServiceResult(new ServiceResult<int>
+                {
+                    Success = false,
+                    Message = "user id is missing",
+                    StatusCode = 400
+                }); 
+            }
 
-            var result = await _userService.UpdateProfileService(userId, request, User);
+           
+            if (string.IsNullOrEmpty(request.fullName) && string.IsNullOrEmpty(request.PhoneNumber))
+            {
+                _logger.LogInformation("update profile for user {userId} failed because nothing to update", userId);
+                return MapServiceResult(new ServiceResult<int>
+                {
+                    Success = false,
+                    Message = "nothing to update",
+                    StatusCode = 400
+                });
+            }
+           
+
+            var authResult = await OwnerAuthorizeOrFalid(userId, "you are not authorizde to update profile");
+
+            if (authResult != null)
+                return authResult;
+
+            _logger.LogInformation("User {UserId} authorized to update profile", userId);
+
+
+            var result = await _userService.UpdateProfileService(userId, request);
             return MapServiceResult(result);
-
         }
 
+        /// <summary>
+        /// Request email change (sends confirmation link).
+        /// </summary>
+        /// <param name="request">change email object</param>
+        /// <param name="emailService">email service ovject</param>
+        /// <returns>userId</returns>
         [Authorize(Roles = "Customer,Admin,RestaurantManager")]
-        [HttpPatch("change_email/{email}")]
-        public async Task<IActionResult> ChangeEmail([FromRoute] string email, [FromBody] ChangeEmailDTO request, [FromServices] IEmailService emailService)
+        [HttpPost("change-email")]
+        [ProducesResponseType(typeof(ServiceResult<string>), 200)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 403)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 404)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 400)]
+        public async Task<IActionResult> ChangeEmail(
+            [FromBody] ChangeEmailDTO request,
+            [FromServices] IEmailService emailService)
         {
 
-            var result = await _userService.ChangeEmailService(email, request, emailService, User);
 
+            var user_id = await GetUserIdFromToken();
+            _logger.LogInformation("User {UserId} requested email change", user_id);
+
+            var result = await _userService.ChangeEmailService(request, emailService, user_id);
+            _logger.LogInformation("email change request peocessed for user {userId}", user_id);
             return MapServiceResult(result);
-
-
         }
 
-        [Authorize(Roles = "Customer,Admin,RestaurantManager")]
-        [HttpGet("confirm_email_change")]
-        public async Task<IActionResult> ConfirmEmailChange([FromQuery] string userId, [FromQuery] string newEmail, [FromQuery] string token)
+        /// <summary>
+        /// Confirm email change using token sent via email.
+        /// </summary>
+        /// <param name="request">change eimali datas</param>
+        /// <returns>userId</returns>
+        [AllowAnonymous]
+        [HttpGet("confirm-email-change")]
+        [ProducesResponseType(typeof(ServiceResult<string>), 200)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 403)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 404)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 400)]
+        public async Task<IActionResult> ConfirmEmailChange(
+            [FromQuery] ConfirmChangeEmailDTO request)
         {
-            var result = await _userService.ConfirmEmailChangeService(userId, newEmail, token);
+_logger.LogInformation("ConfirmEmailChange requested for user {UserId}", request.userId);
+            if (!ModelState.IsValid || string.IsNullOrWhiteSpace(request.newEmail) || string.IsNullOrWhiteSpace(request.token) || string.IsNullOrWhiteSpace(request.userId))
+            {
+                _logger.LogWarning("cange email informations is missing");
+                return MapServiceResult(new ServiceResult<bool>
+                {
+                    Success = false,
+                    Message = "please enter all information for confirm eimail ",
+                    StatusCode = 404
+                });
 
+            }
+         
+            var result = await _userService.ConfirmEmailChangeService(request.userId, request.newEmail, request.token);
             return MapServiceResult(result);
-
         }
 
+
+        /// <summary>
+        /// Get all users with their roles (Admin only).
+        /// </summary>
         [Authorize(Roles = "Admin")]
-        [HttpGet("view/all/users")]
-        public async Task<IActionResult> GetUsersWithRoles()
+        [HttpGet]
+        [ProducesResponseType(typeof(ServiceResult<List<GetUserRoleDTO>>), 200)]
+        [ProducesResponseType(typeof(ServiceResult<List<GetUserRoleDTO>>), 404)]
+        [ProducesResponseType(typeof(ServiceResult<List<GetUserRoleDTO>>), 403)]
+        public async Task<IActionResult> GetUsers([FromQuery] PaginationParams pagination, [FromQuery] UserFilter filter)
         {
-            var result = await _userService.GetUserWithRolesService();
-
+           var currentUser = await GetUserIdFromToken();
+       _logger.LogInformation("Admin {UserId} requested users list with filters", currentUser);
+            var result = await _userService.GetUsersService(pagination, filter,currentUser);
+           
             return MapServiceResult(result);
         }
+
+        /// <summary>
+        /// Activate or deactivate a user account (Admin only).
+        /// </summary>
         [Authorize(Roles = "Admin")]
-        [HttpPatch("active/deactive/user/{userid}")]
-        public async Task<IActionResult> active_deactive_User(string userid)
+        [HttpPatch("{userid}/deactivate")]
+        [ProducesResponseType(typeof(ServiceResult<bool>), 200)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 404)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 400)]
+        [ProducesResponseType(typeof(ServiceResult<string>), 403)]
+        public async Task<IActionResult> DeactiveUser([FromRoute] string userid)
         {
-            var result = await _userService.ActiveDeactiveUserService(userid);
+            if (string.IsNullOrEmpty(userid))
+            {
+                 _logger.LogWarning("deactive user requested without userId {userid}", userid);
+                return MapServiceResult(new ServiceResult<bool>
+                {
+                    Success = false,
+                    Message = "User id is missimg",
+                    StatusCode = 400
+                });  
+            }
+          var currentUserId=await GetUserIdFromToken();
+            _logger.LogInformation("User {AdminId} requested deactivation of user {TargetUserId}", 
+    currentUserId, userid);
+           
+            var role = await _userService.GetUserRoles(userid);
+            if (role == null)
+            {
+_logger.LogWarning("Cannot determine role for user {TargetUserId}", userid);
+                return MapServiceResult(new ServiceResult<bool>
+                {
+                    Success = false,
+                    Message = "user role not found",
+                    StatusCode = 404
+                });
 
+            }
+
+            UserRolee userrole;
+            switch (role)
+            {
+                case "Customer":
+                    userrole = UserRolee.Customer;
+                    break;
+                case "RestaurantManager":
+                    userrole = UserRolee.RestaurantManager;
+                    break;
+                default:
+                    return MapServiceResult(new ServiceResult<bool>
+                    {
+                        Success = false,
+                        Message = "you can not  Deactive Admin",
+                        StatusCode = 400
+                    });
+
+            }
+  
+           
+
+            _logger.LogInformation("Proceeding to deactivate user {TargetUserId}", userid);
+
+            var result = await _userService.DeactiveUserService(userid,currentUserId, userrole);
             return MapServiceResult(result);
         }
 
-        [Authorize(Roles = "Admin")]
-        [HttpGet("view/all/active/customers")]
-        public async Task<IActionResult> get_all_active_users()
-        {
-            var result = await _userService.GetAllActiveUsers();
 
-            return MapServiceResult(result);
-
-        }
 
         private IActionResult MapServiceResult<T>(ServiceResult<T> result)
         {
@@ -109,12 +232,47 @@ namespace food_order_system1.Controllers
             {
                 404 => NotFound(result),
                 400 => BadRequest(result),
-                403 => Unauthorized(result),
+                403 => StatusCode(403, result),
+                420 => BadRequest(result),
+                500 => StatusCode(500, result),
+                201 => Created("", result),
                 _ => Ok(result)
             };
+        }
+
+
+        private async Task<string> GetUserIdFromToken()
+        {
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userIdClaim))
+                throw new UnauthorizedAccessException("User ID claim missing in token.");
+
+            return userIdClaim;
 
         }
+        private async Task<IActionResult?> OwnerAuthorizeOrFalid(string userId, string message)
+        {
+
+            var authResult = await _authorizationService.AuthorizeAsync(
+            User,
+            userId,
+            "UserOwnerShipPolicy");
+
+            if (!authResult.Succeeded)
+            {
+                _logger.LogWarning("User {userId} not authorized for this action", userId);
+                return MapServiceResult(new ServiceResult<bool>
+                {
+                    Success = false,
+                    Message = message,
+                    StatusCode = 403
+                });
+            }
+            return null;
+        }
+
     }
-
-
 }
+
+
+

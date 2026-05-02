@@ -38,10 +38,11 @@ namespace food_order_system1.DTOs
     public class ViewOrderStatisticDTO
     {
         
-             public List<ViewOrderDTO> orders {get;set;}=new();
+       
               public string from {get;set;}=string.Empty;
                public string to {get;set;}=string.Empty;
-               public int OrderNumbers = 0;
+               public int OrderNumbers {get;set;}= 0;
+               public double TotalRevent {get;set;} = 0.0;
     }
 
     public class ViewRestaurantOrderDTO
@@ -49,5 +50,12 @@ namespace food_order_system1.DTOs
         public String RestaurantName {get;set;}=string.Empty;
           public List<ViewItemOrderItemDTO> Orders =new();
         
+    }
+
+    public class ViewOrderNumberPerDay
+    {
+        [Required]
+        public string Day {get ;set;}=string.Empty;
+        public int orderNumber {get;set;}
     }
 }

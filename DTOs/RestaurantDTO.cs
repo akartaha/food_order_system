@@ -15,6 +15,7 @@ namespace food_order_system1.DTOs
         public string Description { get; set; } = string.Empty;
         [Required, StringLength(150)]
         public string Address { get; set; } = string.Empty;
+        public string? ManagerId {get;set;}
 
 
 
@@ -37,12 +38,14 @@ namespace food_order_system1.DTOs
         public string Open { get; set; } = string.Empty;
     }
 
-      public class viewRestauantAndMenuDTO
+      public class viewRestaurantAndMenuDTO
     {
-        public string Name { get; set; } = string.Empty;
+        public string restaurantName { get; set; } = string.Empty;
         public string Discription { get; set; } = string.Empty;
         public string address { get; set; } = string.Empty;
         public string Open { get; set; } = string.Empty;
+        public RestaurantStatuss restaurantStatus {get; set;} 
+        public bool IsDeleted {get;set;}
         public List<ViewRestaurantMenuMenuDTO> Menus{get;set;}=new();
     }
 
@@ -57,6 +60,21 @@ namespace food_order_system1.DTOs
     {
            public string  ItemName {get;set;}=string.Empty;
            public double  ItemPrice {get;set;}
+    }
+
+
+    public class RestaurantAuthorizationDTO{
+        public int RestaurantId{get;set;}
+        public string ownerId{get;set;}=string.Empty;
+    }
+
+
+    public class GetRestaurantCacheDTO
+    {
+         public int RestaurantId{get;set;}
+         public string restaurantName {get;set;}=string.Empty;
+           public string ownerId{get;set;}=string.Empty;
+        
     }
 
 

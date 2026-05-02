@@ -22,4 +22,15 @@ namespace food_order_system1.DTOs
         public string? CategoryName { get; set;}
         
     }
+
+
+    public class GetMenuDTO
+    {
+        public int MenuCategoryId { get; set; }
+        public string CategoryName { get; set; } = string.Empty;
+        public bool IsActive { get; set; }
+        public int RestaurantId { get; set; }
+        public string UserId { get; set; }=string.Empty;
+        public List<GetItemDTO> Items { get; set; } = new List<GetItemDTO>();
+    }
 }

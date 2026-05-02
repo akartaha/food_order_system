@@ -3,6 +3,7 @@ using System.Text.Json;
 using food_order_system1.Exceptions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Serilog.Context;
 
 namespace food_order_system1.Middleware
 {
@@ -19,33 +20,47 @@ namespace food_order_system1.Middleware
             _logger = logger;
         }
 
-        public async Task InvokeAsync(HttpContext context)
-        {
-            try
-            {
-                await _next(context);
-            }
-            catch (Exception ex)
-            {
-                await HandleExceptionAsync(context, ex);
-            }
-        }
+public async Task InvokeAsync(HttpContext context)
+{
+    try
+    {
+        await _next(context);
+    }
+    catch (Exception ex)
+    {
+
+        var userId = context.Items["UserId"]?.ToString();
+        var correlationId = context.Items["CorrelationId"]?.ToString();
+        
+        _logger.LogError(ex,
+            "Unhandled exception. Path: {Path}, Method: {Method} by User: {UserId}, CorrelationId: {CorrelationId}",
+            context.Request.Path,
+            context.Request.Method,
+            userId,
+            correlationId);
+
+        await HandleExceptionAsync(context, ex);
+    }
+}
 
 public async Task HandleExceptionAsync(HttpContext context, Exception ex)
-{ 
-     _logger.LogError(ex, ex.Message);
+{
     if (context.Response.HasStarted)
     {
-        // can't modify headers, just log
-        Console.WriteLine("Response has already started, cannot write exception");
+        _logger.LogWarning("Response already started. Exception handling skipped.");
         return;
     }
 
     context.Response.Clear();
     context.Response.StatusCode = MapToStatusCode(ex);
     context.Response.ContentType = "application/json";
-    _logger.LogError(ex, ex.Message);
-    var response = new { message = ex.Message };
+
+    var response = new
+    {
+        message = GetTitle(ex),
+        detail = IsDevelopment() ? ex.Message : null
+    };
+
     await context.Response.WriteAsync(JsonSerializer.Serialize(response));
 }
 

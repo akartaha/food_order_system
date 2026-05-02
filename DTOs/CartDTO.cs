@@ -29,26 +29,43 @@ namespace food_order_system1.DTOs
         public int NewQuantity { get; set; }
 
     }
-    public class ViewCartItemDTO
+    public class GetCartItemDTO
     {
         [Required]
         public string CartName { get; set; } = string.Empty;
          [Required]
         public string RestaurantName { get; set; } = string.Empty;
-        public List<viewCartItemItemDTO> Items { get; set; } = new();
+        public List<GetCartItemItemDTO> Items { get; set; } = new();
          [Required]
         public string Username{get;set;}=string.Empty;
          [Required]
         public double cartTotalPrice { get; set; }
     }
 
-    public class viewCartItemItemDTO
+    public class GetCartItemItemDTO
     {
          [Required]
         public string ItemName { get; set; } = string.Empty;
          [Required]
         public decimal ItemPrice { get; set; }   
          [Required]   
-        public int Quantity { get; set; }
+          public int Quantity { get; set; }
     }
+
+    public class CartAuthorizationDTO
+    {
+         [Required] 
+        public int cartId {get; set;}
+         [Required] 
+        public string ownerId {get;set;}=string.Empty;
+    }
+
+    public class GetCartCacheDTO
+    {
+        public int cartId {get; set;}
+        public string ownerId {get; set;}=string.Empty;
+        public int restaurant_id {get; set;}
+    }
+
+    
 }

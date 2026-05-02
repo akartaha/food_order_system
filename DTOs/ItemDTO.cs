@@ -9,42 +9,65 @@ namespace food_order_system1.DTOs
 {
     public class CreateItemDTO
     {
-        
-        public string ItemName { get; set; }=string.Empty;
 
-        [Required,Range(0.01, 9999999999999, ErrorMessage = "Price must be greater than 0")]
-        public decimal ItemPrice { get; set;}
-        
-    
+        [Required]
+        public string ItemName { get; set; } = string.Empty;
+
+        [Required, Range(0.01, 9999999999999, ErrorMessage = "Price must be greater than 0")]
+        public decimal ItemPrice { get; set; }
+
+
     }
     public class UpdateItemDTO
     {
-        
-        public string ItemName { get; set; }=string.Empty;
+
+        public string ItemName { get; set; } = string.Empty;
 
         [Range(0.01, 9999999999999, ErrorMessage = "Price must be greater than 0")]
-        public decimal ItemPrice { get; set;}  
+        public decimal ItemPrice { get; set; }
 
     }
     public class ViewItemDTO
     {
-         public string item_name { get; set; }=string.Empty;
-         public int quantity { get; set; }
-         public double price { get; set; }
+        public string item_name { get; set; } = string.Empty;
+        public int quantity { get; set; }
+        public double price { get; set; }
     }
 
-   public class ViewMostSelingItemDTO
+    public class ViewMostSelingItemDTO
     {
-       public string  item_name {get; set; } =string.Empty;
-            public string    restaurantName {get; set; }=string.Empty;
-            public int    time_of_orders = 0;
-        
+        public string itemName { get; set; } = string.Empty;
+        public string restaurantName { get; set; } = string.Empty;
+        public int timeOfOrders = 0;
+
+
     }
 
-    public class ViewItemOrderItemDTO{
-         public string  item_name {get; set; } =string.Empty;
-        public int   quantity=0;
-        public DateTime   timecreated  {get; set; } 
+    public class ViewItemOrderItemDTO
+    {
+        public string item_name { get; set; } = string.Empty;
+        public int quantity = 0;
+        public DateTime timecreated { get; set; }
     }
+
+
+    public class GetItemDTO
+    {
+        public int ItemId { get; set; }
+        public string ItemName { get; set; } = string.Empty;
+        public decimal ItemPrice { get; set; }
+        public int MenuId { get; set; }
+        public int RestaurantId { get; set; }
+        public string UserId { get; set; } = string.Empty;
+        public bool IsDeleted { get; set; } = false;
+        public bool IsAvailable { get; set; } = true;
+    }
+
+    public class ItemAuthorizationDTO
+    {
+        public int itemId { get; set; }
+        public string ownerId { get; set; } = string.Empty;
+    }
+
 
 }

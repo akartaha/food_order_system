@@ -1,16 +1,23 @@
+using System.Reflection;
+using System.Security.Claims;
 using System.Text;
+using System.Threading.RateLimiting;
 using food_order_system1.customAuthorization;
 using food_order_system1.Data;
 using food_order_system1.Middleware;
+using food_order_system1.Middlware;
 using food_order_system1.Modles;
 using food_order_system1.Service;
 using food_order_system1.Service.RestaurantService;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+using Serilog;
+using Serilog.Formatting.Compact;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,6 +25,36 @@ var builder = WebApplication.CreateBuilder(args);
 
 
 builder.Services.AddEndpointsApiExplorer();
+//--------------------------------------------
+// Add Serilog system
+// -------------------------------------------
+
+Log.Logger = new LoggerConfiguration()
+               .Enrich.FromLogContext()
+              .MinimumLevel.Information()
+             //  .WriteTo.Console(new CompactJsonFormatter())
+              .WriteTo.Console(outputTemplate:"[{Timestamp:HH:mm:ss} {Level}] [User: {UserId}] {Message:lj}{NewLine}{Exception}")
+             
+              .WriteTo.File(
+                   formatter: new CompactJsonFormatter(),
+                   path: "logs/log-.json",
+                   rollingInterval: RollingInterval.Day)
+              .CreateLogger();
+
+
+builder.Logging.ClearProviders(); // ❌ remove default logging
+builder.Host.UseSerilog();
+
+//--------------------------------------------
+// add caching system (in-memory) & (redis)
+//-------------------------------------------
+builder.Services.AddMemoryCache();
+
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = builder.Configuration["RedisConnection:Configuration"];
+    options.InstanceName = builder.Configuration["RedisConnection:InstanceName"];
+});
 //--------------------------------------------
 //  add service layer
 //-------------------------------------------
@@ -28,7 +65,23 @@ builder.Services.AddScoped<IItemService,ItemService >();
 builder.Services.AddScoped<IMenuService,MenuService >();
 builder.Services.AddScoped<IOrderSerivce,OrderSerivce >();
 builder.Services.AddScoped<IUserService,UserService >();
+builder.Services.AddScoped<IcacheService,CacheService >();
+builder.Services.AddScoped<ICustomRateLimiter,CustomRateLimiter >();
 
+
+//---------------------------------------------
+// reate limiting service 
+//---------------------------------------------
+builder.Services.AddRateLimiter(options =>
+options.AddFixedWindowLimiter("fixed" , opt =>
+{
+    opt.PermitLimit=10 ;
+    opt.Window = TimeSpan.FromMinutes(3);
+    opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+    opt.QueueLimit = 2;
+}
+)
+);
 //---------------------------------------------
 // email service 
 //--------------------------------------------
@@ -101,6 +154,10 @@ OnAuthenticationFailed = context =>
     options.SignInScheme = IdentityConstants.ExternalScheme;
 });
 
+//---------------------------------------------------------
+// configure cookie 
+//---------------------------------------------------------
+
 builder.Services.ConfigureApplicationCookie(options =>
 {
     options.Events.OnRedirectToLogin = context =>
@@ -121,7 +178,15 @@ builder.Services.ConfigureApplicationCookie(options =>
 //-------------------------------------------------------
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new() { Title = "My API", Version = "v1" });
+     var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    c.IncludeXmlComments(xmlPath);
+    
+       c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Food Order API",
+        Description = "API for managing food orders, customers, and restaurants"
+    });
     c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -155,7 +220,10 @@ builder.Services.AddDbContext<AppUser>(options =>
         builder.Configuration.GetConnectionString("DefaultConnection"),
         new MariaDbServerVersion(new Version(8, 0, 26))));
 
+
+//--------------------------------------------------------
 // ADD Identity user 
+//--------------------------------------------------------
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 {
     // Password settings
@@ -169,42 +237,67 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
     options.Lockout.MaxFailedAccessAttempts = 5; // 5 wrong attempts allowed
     options.Lockout.AllowedForNewUsers = true;
 
-}
+     options.User.RequireUniqueEmail = true;
 
+}
 ).AddEntityFrameworkStores<AppUser>()
     .AddDefaultTokenProviders();
 
+//--------------------------------------------------------
+// ADD Authorization policies and handlers
+//--------------------------------------------------------
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy("UserOwnerShipPolicy", policy =>
+    options.AddPolicy("CartOwnerShipPolicy", policy =>
+        policy.Requirements.Add(new CartOwnerShipRequirement()));
+
+         options.AddPolicy("UserOwnerShipPolicy", policy =>
         policy.Requirements.Add(new UserOwnerShipRequirement()));
  
-    options.AddPolicy("RestauantOwnerShipAndAdminPolicy", policy =>
+    options.AddPolicy("RestaurantOwnerShipAndAdminPolicy", policy =>
         policy.Requirements.Add(new RestauantOwnerShipAndAdminRequirement()));
     
 });
 
-builder.Services.AddScoped<IAuthorizationHandler, UserOwnerShipAuthorizationHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, CartOwnerShipAuthorizationHandler>();
 builder.Services.AddScoped<IAuthorizationHandler, OwnerAndAdminAuthorizationHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, UserOwnerShipAuthorizationHandler>();
 
 builder.Services.AddControllers();
 
+
+
 var app = builder.Build();
+
+//--------------------------------------------------------------------
+// automatically log all requests and responses, including exceptions
+//--------------------------------------------------------------------
+app.UseSerilogRequestLogging(options=> {
+     options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
+    {
+        var userId = httpContext.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        diagnosticContext.Set("UserId", userId ?? "Anonymous");
+
+        var correlationId = httpContext.Response.Headers["X-Correlation-Id"].FirstOrDefault();
+        diagnosticContext.Set("CorrelationId", correlationId);
+};}); // 🔥 THIS LINE DOES EVERYTHING
 
 // -----------------
 // Seed Roles
 // -----------------
-using var scope = app.Services.CreateScope();
-var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-
-string[] roles = { "Admin", "Customer", "RestaurantManager" };
-
-foreach (var role in roles)
+if (!app.Environment.IsEnvironment("Testing"))
 {
-    if (!await roleManager.RoleExistsAsync(role))
-    {
-        await roleManager.CreateAsync(new IdentityRole(role));
+    using var scope = app.Services.CreateScope();
+    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
 
+    string[] roles = { "Admin", "Customer", "RestaurantManager" };
+
+    foreach (var role in roles)
+    {
+        if (!await roleManager.RoleExistsAsync(role))
+        {
+            await roleManager.CreateAsync(new IdentityRole(role));
+        }
     }
 }
 
@@ -217,15 +310,23 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseRouting();
-app.UseMiddleware<GlobalExceptionHandlingMiddleware>(); // optional, for catching exceptions
+//app.UseRateLimiter();
+// optional, for catching exceptions
+ // for enriching log context with user informatio// must come after Authentication
 
-app.UseAuthentication();  // must come before Authorization
-app.UseAuthorization();   // must come after Authentication
+if (!app.Environment.IsEnvironment("Testing")){
+    app.UseMiddleware<CorrelationIdMiddleware>();
+}
+app.UseAuthentication();
+app.UseAuthorization();
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    app.UseMiddleware<RateLimitingMiddlware>();
 
-
+app.UseMiddleware<UserEnrichmentMiddleware>();
+app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
+}
 app.MapControllers();
-
 app.Run();
 
-
-
+public partial class Program { }

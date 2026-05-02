@@ -1,17 +1,17 @@
 # Build folders
 bin/
 obj/
+.vs/
 
 # User-specific files
 *.user
 *.suo
 
-# Sensitive config files
-appsettings.json
+logs/
+# Development secrets
 appsettings.Development.json
+secrets.json
 
-# Logs
-*.log
 
 # OS files
 .DS_Store

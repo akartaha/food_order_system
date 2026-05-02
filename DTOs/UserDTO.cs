@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Threading.Tasks;
+using food_order_system1.Modles;
 
 namespace food_order_system1.DTOs
 {
@@ -64,13 +65,14 @@ namespace food_order_system1.DTOs
     }
 
 
-    public class ChangeEmailDTO
+
+
+  public class ChangeEmailDTO
     {
         [Required(ErrorMessage = "Email is required")]
         [EmailAddress(ErrorMessage = "Invalid email format")]
-        public string NewEmail { get; set; } = string.Empty;
+        public string  Email { get; set; } = string.Empty;
     }
-
 
     public class GetUserRoleDTO
     {
@@ -79,17 +81,55 @@ namespace food_order_system1.DTOs
         public string Email { get; set; } = string.Empty;
         public string IsConfirmEmail { get; set; } = string.Empty;
         public string PhoneNumber { get; set; } = string.Empty;
-        public List<string> Role { get; set; } = new();
+        public string Role { get; set; } 
         public string IsActivied { get; set; } = string.Empty;
 
     }
 
-    public class GetUserDTO
+    // public class GetUserDTO
+    // {
+    //     public string full_name { get; set; } = string.Empty;
+    //     public string user_name { get; set; } = string.Empty;
+    //     public string email { get; set; } = string.Empty;
+    //     public string phone_number { get; set; } = string.Empty;
+    // }
+
+public class UserWithRoleDto{
+    public ApplicationUser User {get;set;}=new();
+    public string Role {get;set;}=string.Empty;
+
+}
+ public class ConfirmChangeEmailDTO
     {
-        public string full_name { get; set; } = string.Empty;
-        public string user_name { get; set; } = string.Empty;
-        public string email { get; set; } = string.Empty;
-        public string phone_number { get; set; } = string.Empty;
+        [Required(ErrorMessage = "id is required")]
+        public string userId {get ; set; } =string.Empty;
+        
+         [Required(ErrorMessage = "email is required")]
+         [EmailAddress(ErrorMessage = "Invalid email format")]
+         public  string newEmail {get;set;}=string.Empty;
+
+          [Required(ErrorMessage = "token is required")]
+        public string token {get;set;}=string.Empty;
+    }
+ public class ConfirmEmailDTO
+    {
+        [Required(ErrorMessage = "id is required")]
+        public string userId {get ; set; } =string.Empty;
+       
+        [Required(ErrorMessage = "token is required")]
+        public string token {get;set;}=string.Empty;
+    }
+
+public class AuthResponseDTO
+    {
+        public string Token {get;set;}=string.Empty;
+        public string refreshToken {get;set;}=string.Empty;
+    }
+
+    public class GetRefreshTokenDTO
+    {
+        public ApplicationUser user {get;set;}=new ApplicationUser();
+        public RefreshToken token {get;set;}=new RefreshToken();
     }
 
 
